@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math/big"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +17,7 @@ import (
 )
 
 const (
-	maxJob = 5
+	maxJob = 10
 )
 
 var (
@@ -67,6 +68,10 @@ func init() {
 func main() {
 	defer db.Close()
 
+	start := time.Now()
+	r := new(big.Int)
+	fmt.Println(r.Binomial(1000, 10))
+
 	nodes, err = retriveCatalogs(url + "LawSearchLaw.aspx")
 
 	for _, n := range nodes {
@@ -83,22 +88,25 @@ func main() {
 	for getJobCount() > 0 {
 		time.Sleep(time.Duration(10) * time.Millisecond)
 	}
+
+	elapsed := time.Since(start)
+	log.Printf("took %s\n", elapsed)
 }
 
 func storeList(n *cdp.Node) {
 
 	var catalog string
-	fmt.Printf("%s\n", n.AttributeValue("href"))
 
 	lists, catalog, err = retriveLists(url + n.AttributeValue("href"))
 	catalog = strings.Trim(strings.Trim(catalog, "\n"), " ")
+	fmt.Printf("%s : [%s]\n", n.AttributeValue("href"), catalog)
 
 	for _, l := range lists {
 		pCode := strings.Split(l.AttributeValue("href"), "=")
 		title := l.AttributeValue("title")
 		if len(pCode) > 0 {
-			fmt.Printf("[%s] : %s : %s\n", catalog, title, pCode[1])
-			sql := "INSERT OR REPLACE INTO lawl_list(catalog, pcode, name) VALUES ('" + catalog + "', '" + title + "', '" + pCode[1] + "')"
+			// fmt.Printf("[%s] : %s : %s\n", catalog, title, pCode[1])
+			sql := "INSERT OR REPLACE INTO lawl_list(catalog, pcode, name) VALUES ('" + catalog + "', '" + pCode[1] + "', '" + title + "')"
 			_, err = db.Exec(sql)
 		}
 	}
