@@ -95,7 +95,6 @@ func main() {
 }
 
 func storeList(n *cdp.Node) (err error) {
-
 	if lists, catalog, err := retriveLists(url + n.AttributeValue("href")); err == nil {
 		catalog = strings.Trim(strings.Trim(catalog, "\n"), " ")
 		fmt.Printf("%s : [%s]\n", n.AttributeValue("href"), catalog)
