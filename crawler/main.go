@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/chromedp"
 	"github.com/eehsiao/go-crawler/jobctrl"
+	"github.com/gosuri/uiprogress"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -42,49 +44,29 @@ func main() {
 
 	start := time.Now()
 	if nodes, err := retriveCatalogs(url + "LawSearchLaw.aspx"); err == nil {
+		uiprogress.Start()
+		var wg sync.WaitGroup
+		bar := uiprogress.AddBar(len(nodes)).AppendCompleted().PrependElapsed()
+		bar.Width = 50
+		bar.PrependFunc(func(b *uiprogress.Bar) string {
+			return fmt.Sprintf("(%d/%d)", b.Current(), len(nodes))
+		})
 		for _, n := range nodes {
 			for !j.IncJob() {
 				time.Sleep(time.Duration(100) * time.Millisecond)
 			}
-			go storeList(n)
+			wg.Add(1)
+			go storeList(n, &wg)
+			bar.Incr()
 		}
+		wg.Wait()
+		uiprogress.Stop()
 	} else {
 		log.Printf("retriveCatalogs error %s\n", err)
 	}
 
-	time.Sleep(time.Duration(10) * time.Millisecond)
-
-	for j.GetJobCount() > 0 {
-		time.Sleep(time.Duration(10) * time.Millisecond)
-	}
-
 	elapsed := time.Since(start)
 	log.Printf("took %s\n", elapsed)
-}
-
-func storeList(n *cdp.Node) (err error) {
-	if lists, catalog, err := retriveLists(url + n.AttributeValue("href")); err == nil {
-		catalog = strings.Trim(strings.Trim(catalog, "\n"), " ")
-		fmt.Printf("[%d] %s : [%s]\n", j.GetJobCount(), n.AttributeValue("href"), catalog)
-
-		for _, l := range lists {
-			pCode := strings.Split(l.AttributeValue("href"), "=")
-			title := l.AttributeValue("title")
-			if len(pCode) > 0 {
-				// fmt.Printf("[%s] : %s : %s\n", catalog, title, pCode[1])
-				sql := "INSERT OR REPLACE INTO lawl_list(catalog, pcode, name) VALUES ('" + catalog + "', '" + pCode[1] + "', '" + title + "')"
-				if _, err = db.Exec(sql); err != nil {
-					log.Printf("db.Exec %s error %s\n", sql, err)
-				}
-			}
-		}
-	} else {
-		log.Printf("%s retriveLists error %s\n", n.Dump("", "", false), err)
-	}
-
-	j.DecJob()
-
-	return
 }
 
 func retriveCatalogs(u string) (n []*cdp.Node, err error) {
@@ -106,6 +88,34 @@ func retriveCatalogs(u string) (n []*cdp.Node, err error) {
 	return
 }
 
+func storeList(n *cdp.Node, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var (
+		lists   []*cdp.Node
+		err     error
+		catalog string
+	)
+	if lists, catalog, err = retriveLists(url + n.AttributeValue("href")); err == nil && len(lists) > 0 {
+
+		catalog = strings.Trim(strings.Trim(catalog, "\n"), " ")
+
+		for _, l := range lists {
+			pCode := strings.Split(l.AttributeValue("href"), "=")
+			title := l.AttributeValue("title")
+			if len(pCode) > 0 {
+				// fmt.Printf("[%s] : %s : %s\n", catalog, title, pCode[1])
+				sql := "INSERT OR REPLACE INTO lawl_list(catalog, pcode, name) VALUES ('" + catalog + "', '" + pCode[1] + "', '" + title + "')"
+				if _, err = db.Exec(sql); err != nil {
+					log.Fatalf("db.Exec %s error %s\n", sql, err)
+				}
+			}
+		}
+	}
+	j.DecJob()
+
+	return
+}
+
 func retriveLists(u string) (n []*cdp.Node, c string, err error) {
 	ctx, cancel := chromedp.NewContext(
 		context.Background(),
@@ -119,7 +129,7 @@ func retriveLists(u string) (n []*cdp.Node, c string, err error) {
 	err = chromedp.Run(ctx,
 		chromedp.Navigate(u),
 		chromedp.WaitVisible(`tbody`),
-		chromedp.Text(`div[class="law-result"] > h3`, &c, chromedp.ByQueryAll),
+		chromedp.Text(`div[class="law-result"] > h3`, &c, chromedp.NodeVisible, chromedp.ByQueryAll),
 		chromedp.Nodes(`#hlkLawName`, &n, chromedp.ByQueryAll),
 	)
 
@@ -146,6 +156,7 @@ func initTable(db *sql.DB) (err error) {
 		pcode char(8),
 		name varchar(255) NOT NULL
 	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx01_pcode ON lawl_list (pcode);
 	`
 	_, err = db.Exec(sql)
 
