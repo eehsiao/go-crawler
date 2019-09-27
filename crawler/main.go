@@ -8,50 +8,24 @@ import (
 	"log"
 	"math/big"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/chromedp"
+	"github.com/eehsiao/go-crawler/jobctrl"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 const (
-	maxJob = 10
+	maxJobs = 10
 )
 
 var (
 	db  *sql.DB
 	url = "https://law.moj.gov.tw/Law/"
 
-	jobLock sync.RWMutex
-	jobCnt  int
+	j = jobctrl.NewJobCtrl(maxJobs)
 )
-
-func incJob() int {
-	jobLock.Lock()
-	defer jobLock.Unlock()
-
-	jobCnt++
-
-	return jobCnt
-}
-
-func decJob() int {
-	jobLock.Lock()
-	defer jobLock.Unlock()
-
-	jobCnt--
-
-	return jobCnt
-}
-
-func getJobCount() int {
-	jobLock.RLock()
-	defer jobLock.RUnlock()
-
-	return jobCnt
-}
 
 func init() {
 	var err error
@@ -73,12 +47,10 @@ func main() {
 
 	if nodes, err := retriveCatalogs(url + "LawSearchLaw.aspx"); err == nil {
 		for _, n := range nodes {
-			for getJobCount() >= maxJob {
+			for !j.IncJob() {
 				time.Sleep(time.Duration(100) * time.Millisecond)
 			}
-			incJob()
 			go storeList(n)
-
 		}
 	} else {
 		log.Printf("retriveCatalogs error %s\n", err)
@@ -86,7 +58,7 @@ func main() {
 
 	time.Sleep(time.Duration(10) * time.Millisecond)
 
-	for getJobCount() > 0 {
+	for j.GetJobCount() > 0 {
 		time.Sleep(time.Duration(10) * time.Millisecond)
 	}
 
@@ -114,7 +86,7 @@ func storeList(n *cdp.Node) (err error) {
 		log.Printf("retriveLists error %s\n", err)
 	}
 
-	decJob()
+	j.DecJob()
 
 	return
 }
