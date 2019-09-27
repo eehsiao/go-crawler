@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"math/big"
 	"strings"
 	"time"
 
@@ -42,9 +41,6 @@ func main() {
 	defer db.Close()
 
 	start := time.Now()
-	r := new(big.Int)
-	fmt.Println(r.Binomial(1000, 10))
-
 	if nodes, err := retriveCatalogs(url + "LawSearchLaw.aspx"); err == nil {
 		for _, n := range nodes {
 			for !j.IncJob() {
@@ -69,7 +65,7 @@ func main() {
 func storeList(n *cdp.Node) (err error) {
 	if lists, catalog, err := retriveLists(url + n.AttributeValue("href")); err == nil {
 		catalog = strings.Trim(strings.Trim(catalog, "\n"), " ")
-		fmt.Printf("%s : [%s]\n", n.AttributeValue("href"), catalog)
+		fmt.Printf("[%d] %s : [%s]\n", j.GetJobCount(), n.AttributeValue("href"), catalog)
 
 		for _, l := range lists {
 			pCode := strings.Split(l.AttributeValue("href"), "=")
@@ -83,7 +79,7 @@ func storeList(n *cdp.Node) (err error) {
 			}
 		}
 	} else {
-		log.Printf("retriveLists error %s\n", err)
+		log.Printf("%s retriveLists error %s\n", n.Dump("", "", false), err)
 	}
 
 	j.DecJob()
@@ -123,7 +119,7 @@ func retriveLists(u string) (n []*cdp.Node, c string, err error) {
 	err = chromedp.Run(ctx,
 		chromedp.Navigate(u),
 		chromedp.WaitVisible(`tbody`),
-		chromedp.Text(`div[class="law-result"] > h3`, &c, chromedp.NodeVisible, chromedp.ByQueryAll),
+		chromedp.Text(`div[class="law-result"] > h3`, &c, chromedp.ByQueryAll),
 		chromedp.Nodes(`#hlkLawName`, &n, chromedp.ByQueryAll),
 	)
 

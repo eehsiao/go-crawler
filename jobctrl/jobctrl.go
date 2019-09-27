@@ -19,12 +19,12 @@ func NewJobCtrl(maxJobs int) *jobCtrl {
 }
 
 func (j *jobCtrl) IncJob() bool {
-	if j.GetJobCount() >= j.maxJobs {
-		return false
-	}
-
 	j.jobLock.Lock()
 	defer j.jobLock.Unlock()
+
+	if j.jobCnt >= j.maxJobs {
+		return false
+	}
 
 	j.jobCnt++
 
