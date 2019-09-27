@@ -21,10 +21,8 @@ const (
 )
 
 var (
-	db           *sql.DB
-	err          error
-	url          = "https://law.moj.gov.tw/Law/"
-	nodes, lists []*cdp.Node
+	db  *sql.DB
+	url = "https://law.moj.gov.tw/Law/"
 
 	jobLock sync.RWMutex
 	jobCnt  int
@@ -56,6 +54,7 @@ func getJobCount() int {
 }
 
 func init() {
+	var err error
 	if db, err = openSqlite(20, 2); err != nil {
 		panic(err.Error())
 	}
@@ -72,15 +71,17 @@ func main() {
 	r := new(big.Int)
 	fmt.Println(r.Binomial(1000, 10))
 
-	nodes, err = retriveCatalogs(url + "LawSearchLaw.aspx")
+	if nodes, err := retriveCatalogs(url + "LawSearchLaw.aspx"); err == nil {
+		for _, n := range nodes {
+			for getJobCount() >= maxJob {
+				time.Sleep(time.Duration(100) * time.Millisecond)
+			}
+			incJob()
+			go storeList(n)
 
-	for _, n := range nodes {
-		for getJobCount() >= maxJob {
-			time.Sleep(time.Duration(100) * time.Millisecond)
 		}
-		incJob()
-		go storeList(n)
-
+	} else {
+		log.Printf("retriveCatalogs error %s\n", err)
 	}
 
 	time.Sleep(time.Duration(10) * time.Millisecond)
@@ -93,25 +94,30 @@ func main() {
 	log.Printf("took %s\n", elapsed)
 }
 
-func storeList(n *cdp.Node) {
+func storeList(n *cdp.Node) (err error) {
 
-	var catalog string
+	if lists, catalog, err := retriveLists(url + n.AttributeValue("href")); err == nil {
+		catalog = strings.Trim(strings.Trim(catalog, "\n"), " ")
+		fmt.Printf("%s : [%s]\n", n.AttributeValue("href"), catalog)
 
-	lists, catalog, err = retriveLists(url + n.AttributeValue("href"))
-	catalog = strings.Trim(strings.Trim(catalog, "\n"), " ")
-	fmt.Printf("%s : [%s]\n", n.AttributeValue("href"), catalog)
-
-	for _, l := range lists {
-		pCode := strings.Split(l.AttributeValue("href"), "=")
-		title := l.AttributeValue("title")
-		if len(pCode) > 0 {
-			// fmt.Printf("[%s] : %s : %s\n", catalog, title, pCode[1])
-			sql := "INSERT OR REPLACE INTO lawl_list(catalog, pcode, name) VALUES ('" + catalog + "', '" + pCode[1] + "', '" + title + "')"
-			_, err = db.Exec(sql)
+		for _, l := range lists {
+			pCode := strings.Split(l.AttributeValue("href"), "=")
+			title := l.AttributeValue("title")
+			if len(pCode) > 0 {
+				// fmt.Printf("[%s] : %s : %s\n", catalog, title, pCode[1])
+				sql := "INSERT OR REPLACE INTO lawl_list(catalog, pcode, name) VALUES ('" + catalog + "', '" + pCode[1] + "', '" + title + "')"
+				if _, err = db.Exec(sql); err != nil {
+					log.Printf("db.Exec %s error %s\n", sql, err)
+				}
+			}
 		}
+	} else {
+		log.Printf("retriveLists error %s\n", err)
 	}
 
 	decJob()
+
+	return
 }
 
 func retriveCatalogs(u string) (n []*cdp.Node, err error) {
