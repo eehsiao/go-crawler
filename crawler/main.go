@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -18,11 +19,13 @@ import (
 )
 
 const (
-	maxJobs = 10
+	maxJobs   = 10
+	maxTryCnt = 2
 )
 
 var (
 	db  *sql.DB
+	f   *os.File
 	url = "https://law.moj.gov.tw/Law/"
 
 	j = jobctrl.NewJobCtrl(maxJobs)
@@ -30,6 +33,11 @@ var (
 
 func init() {
 	var err error
+	if f, err = os.OpenFile("error.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666); err != nil {
+		panic(err.Error())
+	}
+	log.SetOutput(f)
+
 	if db, err = openSqlite(20, 2); err != nil {
 		panic(err.Error())
 	}
@@ -40,16 +48,22 @@ func init() {
 }
 
 func main() {
-	defer db.Close()
+	defer func() {
+		f.Close()
+		defer db.Close()
+	}()
 
 	start := time.Now()
 	if nodes, err := retriveCatalogs(url + "LawSearchLaw.aspx"); err == nil {
 		uiprogress.Start()
-		var wg sync.WaitGroup
+		var (
+			wg      sync.WaitGroup
+			catalog string
+		)
 		bar := uiprogress.AddBar(len(nodes)).AppendCompleted().PrependElapsed()
 		bar.Width = 50
 		bar.PrependFunc(func(b *uiprogress.Bar) string {
-			return fmt.Sprintf("(%d/%d)", b.Current(), len(nodes))
+			return fmt.Sprintf("%s (%d/%d)", catalog, b.Current(), len(nodes))
 		})
 		for _, n := range nodes {
 			for !j.IncJob() {
@@ -79,23 +93,22 @@ func retriveCatalogs(u string) (n []*cdp.Node, err error) {
 	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	err = chromedp.Run(ctx,
-		chromedp.Navigate(u),
-		chromedp.WaitVisible(`#plLeftCount`),
-		chromedp.Nodes(`li > span > a`, &n, chromedp.ByQueryAll),
-	)
+	for tryCnt := 0; tryCnt < maxTryCnt; tryCnt++ {
+		if err = chromedp.Run(ctx,
+			chromedp.Navigate(u),
+			chromedp.WaitVisible(`#plLeftCount`),
+			chromedp.Nodes(`li > span > a`, &n, chromedp.ByQueryAll),
+		); err == nil {
+			tryCnt = maxTryCnt
+		}
+	}
 
 	return
 }
 
 func storeList(n *cdp.Node, wg *sync.WaitGroup) {
 	defer wg.Done()
-	var (
-		lists   []*cdp.Node
-		err     error
-		catalog string
-	)
-	if lists, catalog, err = retriveLists(url + n.AttributeValue("href")); err == nil && len(lists) > 0 {
+	if lists, catalog, err := retriveLists(url + n.AttributeValue("href")); err == nil && len(lists) > 0 {
 
 		catalog = strings.Trim(strings.Trim(catalog, "\n"), " ")
 
@@ -104,13 +117,16 @@ func storeList(n *cdp.Node, wg *sync.WaitGroup) {
 			title := l.AttributeValue("title")
 			if len(pCode) > 0 {
 				// fmt.Printf("[%s] : %s : %s\n", catalog, title, pCode[1])
-				sql := "INSERT OR REPLACE INTO lawl_list(catalog, pcode, name) VALUES ('" + catalog + "', '" + pCode[1] + "', '" + title + "')"
+				sql := "INSERT OR REPLACE INTO law_lists(catalog, pcode, name) VALUES ('" + catalog + "', '" + pCode[1] + "', '" + title + "')"
 				if _, err = db.Exec(sql); err != nil {
 					log.Fatalf("db.Exec %s error %s\n", sql, err)
 				}
 			}
 		}
+	} else {
+		log.Printf("[%s]retriveLists error %s\n", n.Dump("", "", false), err)
 	}
+
 	j.DecJob()
 
 	return
@@ -126,18 +142,24 @@ func retriveLists(u string) (n []*cdp.Node, c string, err error) {
 	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	err = chromedp.Run(ctx,
-		chromedp.Navigate(u),
-		chromedp.WaitVisible(`tbody`),
-		chromedp.Text(`div[class="law-result"] > h3`, &c, chromedp.NodeVisible, chromedp.ByQueryAll),
-		chromedp.Nodes(`#hlkLawName`, &n, chromedp.ByQueryAll),
-	)
+	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
+	for tryCnt := 0; tryCnt < maxTryCnt; tryCnt++ {
+		if err = chromedp.Run(ctx,
+			chromedp.Navigate(u),
+			chromedp.WaitVisible(`tbody`),
+			chromedp.Text(`div[class="law-result"] > h3`, &c, chromedp.NodeVisible, chromedp.ByQueryAll),
+			chromedp.Nodes(`#hlkLawName`, &n, chromedp.ByQueryAll),
+		); err == nil {
+			tryCnt = maxTryCnt
+		}
+	}
 	return
 }
 
 func openSqlite(max, min int) (db *sql.DB, err error) {
-	db, err = sql.Open("sqlite3", "./lawlists.sqlite")
+	db, err = sql.Open("sqlite3", "./roc_laws.sqlite")
 	if err != nil {
 		return
 	}
@@ -150,13 +172,13 @@ func openSqlite(max, min int) (db *sql.DB, err error) {
 
 func initTable(db *sql.DB) (err error) {
 	sql := `
-	CREATE TABLE IF NOT EXISTS lawl_list (
+	CREATE TABLE IF NOT EXISTS law_lists (
 		id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 		catalog varchar(255) NOT NULL,
 		pcode char(8),
 		name varchar(255) NOT NULL
 	);
-	CREATE UNIQUE INDEX IF NOT EXISTS idx01_pcode ON lawl_list (pcode);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx01_law_lists_pcode ON law_lists (pcode);
 	`
 	_, err = db.Exec(sql)
 
