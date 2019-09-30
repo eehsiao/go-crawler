@@ -51,6 +51,11 @@ func init() {
 }
 
 func main() {
+	defer func() {
+		f.Close()
+		defer db.Close()
+	}()
+
 	start := time.Now()
 	c := colly.NewCollector(
 		// colly.Debugger(&debug.LogDebugger{}),
@@ -66,12 +71,6 @@ func main() {
 	c.Wait()
 
 	uiprogress.Start()
-
-	defer func() {
-		f.Close()
-		defer db.Close()
-	}()
-
 	bar := uiprogress.AddBar(len(catalogs)).AppendCompleted().PrependElapsed()
 	bar.Width = 50
 	bar.PrependFunc(func(b *uiprogress.Bar) string {
