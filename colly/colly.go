@@ -109,7 +109,7 @@ func main() {
 		j.DecJob()
 	})
 
-	c.OnError(func(_ *colly.Response, err error) {
+	l.OnError(func(_ *colly.Response, err error) {
 		log.Fatalf("error:", err)
 	})
 
