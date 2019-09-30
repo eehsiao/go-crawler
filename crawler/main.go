@@ -142,9 +142,6 @@ func retriveLists(u string) (n []*cdp.Node, c string, err error) {
 	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
 	for tryCnt := 0; tryCnt < maxTryCnt; tryCnt++ {
 		if err = chromedp.Run(ctx,
 			chromedp.Navigate(u),
