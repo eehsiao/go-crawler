@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/eehsiao/go-crawler/jobctrl"
@@ -19,12 +20,18 @@ const (
 	maxJobs = 10
 )
 
-var (
-	db  *sql.DB
-	f   *os.File
-	url = "https://law.moj.gov.tw/Law/"
+type item struct {
+	title string
+	link  string
+}
 
-	j = jobctrl.NewJobCtrl(maxJobs)
+var (
+	db       *sql.DB
+	f        *os.File
+	url      = "https://law.moj.gov.tw/Law/"
+	catalogs []item
+	j        = jobctrl.NewJobCtrl(maxJobs)
+	wg       sync.WaitGroup
 )
 
 func init() {
@@ -44,25 +51,11 @@ func init() {
 }
 
 func main() {
-	type item struct {
-		title string
-		link  string
-	}
-
-	var (
-		catalogs []item
-		catalog  string
-	)
 	start := time.Now()
-	l := colly.NewCollector(
+	c := colly.NewCollector(
 		// colly.Debugger(&debug.LogDebugger{}),
 		colly.Async(true),
 	)
-	l.Limit(&colly.LimitRule{
-		Parallelism: maxJobs,
-		Delay:       150 * time.Microsecond,
-	})
-	c := l.Clone()
 
 	// retriveCatalogs
 	c.OnHTML(`li > span > a[href]`, func(e *colly.HTMLElement) {
@@ -75,7 +68,6 @@ func main() {
 	uiprogress.Start()
 
 	defer func() {
-		uiprogress.Stop()
 		f.Close()
 		defer db.Close()
 	}()
@@ -87,9 +79,32 @@ func main() {
 	})
 
 	//retriveLists
+
+	for _, v := range catalogs {
+		for !j.IncJob() {
+			time.Sleep(time.Duration(100) * time.Millisecond)
+		}
+		wg.Add(1)
+		go storeList(url+v.link, bar, &wg)
+	}
+	wg.Wait()
+	uiprogress.Stop()
+
+	elapsed := time.Since(start)
+	fmt.Printf("took %s\n", elapsed)
+}
+
+func storeList(u string, bar *uiprogress.Bar, wg *sync.WaitGroup) (err error) {
+	defer func() {
+		bar.Incr()
+		j.DecJob()
+		wg.Done()
+	}()
+
+	l := colly.NewCollector()
 	l.OnHTML("body", func(e *colly.HTMLElement) {
 		if em := e.DOM.Find(`div[class="law-result"] > h3`).Text(); em != "" {
-			catalog = strings.Trim(strings.Trim(em, "\n"), " ")
+			catalog := strings.Trim(strings.Trim(em, "\n"), " ")
 			e.ForEach("#hlkLawName", func(_ int, el *colly.HTMLElement) {
 				pCode := strings.Split(el.Attr("href"), "=")
 				if len(pCode) > 0 {
@@ -104,24 +119,12 @@ func main() {
 
 	})
 
-	l.OnScraped(func(r *colly.Response) {
-		bar.Incr()
-		j.DecJob()
-	})
-
 	l.OnError(func(_ *colly.Response, err error) {
 		log.Fatalf("error:", err)
 	})
 
-	for _, v := range catalogs {
-		for !j.IncJob() {
-			time.Sleep(time.Duration(100) * time.Millisecond)
-		}
-		l.Visit(url + v.link)
-	}
-	l.Wait()
-	elapsed := time.Since(start)
-	fmt.Printf("took %s\n", elapsed)
+	l.Visit(u)
+	return
 }
 
 func openSqlite(max, min int) (db *sql.DB, err error) {
