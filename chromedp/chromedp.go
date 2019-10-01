@@ -117,8 +117,8 @@ func storeList(n *cdp.Node, wg *sync.WaitGroup) {
 			title := l.AttributeValue("title")
 			if len(pCode) > 0 {
 				// fmt.Printf("[%s] : %s : %s\n", catalog, title, pCode[1])
-				sql := "INSERT OR REPLACE INTO law_lists(catalog, pcode, name) VALUES ('" + catalog + "', '" + pCode[1] + "', '" + title + "')"
-				if _, err = db.Exec(sql); err != nil {
+				sql := "INSERT OR REPLACE INTO law_lists(catalog, pcode, name) VALUES (?, ?, ?)"
+				if _, err = db.Exec(sql, catalog, pCode[1], title); err != nil {
 					log.Fatalf("db.Exec %s error %s\n", sql, err)
 				}
 			}

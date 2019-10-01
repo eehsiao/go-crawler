@@ -59,7 +59,7 @@ func main() {
 	start := time.Now()
 	c := colly.NewCollector(
 		// colly.Debugger(&debug.LogDebugger{}),
-		colly.Async(true),
+		colly.Async(true), //non-blocked
 	)
 
 	// retriveCatalogs
@@ -78,7 +78,6 @@ func main() {
 	})
 
 	//retriveLists
-
 	for _, v := range catalogs {
 		for !j.IncJob() {
 			time.Sleep(time.Duration(100) * time.Millisecond)
@@ -100,6 +99,7 @@ func storeList(u string, bar *uiprogress.Bar, wg *sync.WaitGroup) (err error) {
 		wg.Done()
 	}()
 
+	// blocked in goroutine
 	l := colly.NewCollector()
 	l.OnHTML("body", func(e *colly.HTMLElement) {
 		if em := e.DOM.Find(`div[class="law-result"] > h3`).Text(); em != "" {
@@ -108,8 +108,8 @@ func storeList(u string, bar *uiprogress.Bar, wg *sync.WaitGroup) (err error) {
 				pCode := strings.Split(el.Attr("href"), "=")
 				if len(pCode) > 0 {
 					// fmt.Printf("%s : %s : %s : %s\n", catalog, el.Text, el.Attr("href"), pCode[1])
-					sql := "INSERT OR REPLACE INTO law_lists(catalog, pcode, name) VALUES ('" + catalog + "', '" + pCode[1] + "', '" + el.Text + "')"
-					if _, err := db.Exec(sql); err != nil {
+					sql := "INSERT OR REPLACE INTO law_lists(catalog, pcode, name) VALUES (?, ?, ?)"
+					if _, err = db.Exec(sql, catalog, pCode[1], el.Text); err != nil {
 						log.Fatalf("db.Exec %s error %s\n", sql, err)
 					}
 				}
@@ -118,8 +118,9 @@ func storeList(u string, bar *uiprogress.Bar, wg *sync.WaitGroup) (err error) {
 
 	})
 
-	l.OnError(func(_ *colly.Response, err error) {
-		log.Fatalf("error:", err)
+	l.OnError(func(_ *colly.Response, e error) {
+		log.Fatalf("error:", e)
+		err = e
 	})
 
 	l.Visit(u)
