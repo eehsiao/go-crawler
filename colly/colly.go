@@ -42,7 +42,7 @@ func init() {
 	}
 	log.SetOutput(f)
 
-	if db, err = openSqlite(5, 2); err != nil {
+	if db, err = openSqlite(20, 2); err != nil {
 		panic(err.Error())
 	}
 

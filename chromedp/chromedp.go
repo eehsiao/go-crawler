@@ -28,7 +28,8 @@ var (
 	f   *os.File
 	url = "https://law.moj.gov.tw/Law/"
 
-	j = jobctrl.NewJobCtrl(maxJobs)
+	j      = jobctrl.NewJobCtrl(maxJobs)
+	dbLock sync.RWMutex
 )
 
 func init() {
@@ -116,11 +117,13 @@ func storeList(n *cdp.Node, wg *sync.WaitGroup) {
 			pCode := strings.Split(l.AttributeValue("href"), "=")
 			title := l.AttributeValue("title")
 			if len(pCode) > 0 {
+				dbLock.Lock()
 				// fmt.Printf("[%s] : %s : %s\n", catalog, title, pCode[1])
 				sql := "INSERT OR REPLACE INTO law_lists(catalog, pcode, name) VALUES (?, ?, ?)"
 				if _, err = db.Exec(sql, catalog, pCode[1], title); err != nil {
 					log.Fatalf("db.Exec %s error %s\n", sql, err)
 				}
+				dbLock.Unlock()
 			}
 		}
 	} else {
