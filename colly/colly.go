@@ -32,6 +32,7 @@ var (
 	catalogs []item
 	j        = jobctrl.NewJobCtrl(maxJobs)
 	wg       sync.WaitGroup
+	dbLock   sync.RWMutex
 )
 
 func init() {
@@ -41,7 +42,7 @@ func init() {
 	}
 	log.SetOutput(f)
 
-	if db, err = openSqlite(20, 2); err != nil {
+	if db, err = openSqlite(5, 2); err != nil {
 		panic(err.Error())
 	}
 
@@ -107,11 +108,13 @@ func storeList(u string, bar *uiprogress.Bar, wg *sync.WaitGroup) (err error) {
 			e.ForEach("#hlkLawName", func(_ int, el *colly.HTMLElement) {
 				pCode := strings.Split(el.Attr("href"), "=")
 				if len(pCode) > 0 {
+					dbLock.Lock()
 					// fmt.Printf("%s : %s : %s : %s\n", catalog, el.Text, el.Attr("href"), pCode[1])
 					sql := "INSERT OR REPLACE INTO law_lists(catalog, pcode, name) VALUES (?, ?, ?)"
 					if _, err = db.Exec(sql, catalog, pCode[1], el.Text); err != nil {
 						log.Fatalf("db.Exec %s error %s\n", sql, err)
 					}
+					dbLock.Unlock()
 				}
 			})
 		}
