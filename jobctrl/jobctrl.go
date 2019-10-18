@@ -5,20 +5,20 @@ import (
 	"sync"
 )
 
-type jobCtrl struct {
+type JobCtrl struct {
 	jobLock sync.RWMutex
 	jobCnt  int
 	maxJobs int
 }
 
-func NewJobCtrl(maxJobs int) *jobCtrl {
-	return &jobCtrl{
+func NewJobCtrl(maxJobs int) *JobCtrl {
+	return &JobCtrl{
 		jobCnt:  0,
 		maxJobs: maxJobs,
 	}
 }
 
-func (j *jobCtrl) IncJob() bool {
+func (j *JobCtrl) IncJob() bool {
 	j.jobLock.Lock()
 	defer j.jobLock.Unlock()
 
@@ -31,7 +31,7 @@ func (j *jobCtrl) IncJob() bool {
 	return true
 }
 
-func (j *jobCtrl) DecJob() bool {
+func (j *JobCtrl) DecJob() bool {
 	j.jobLock.Lock()
 	defer j.jobLock.Unlock()
 
@@ -40,7 +40,7 @@ func (j *jobCtrl) DecJob() bool {
 	return true
 }
 
-func (j *jobCtrl) GetJobCount() int {
+func (j *JobCtrl) GetJobCount() int {
 	j.jobLock.RLock()
 	defer j.jobLock.RUnlock()
 
