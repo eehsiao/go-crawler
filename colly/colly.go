@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	maxJobs = 10
+	maxJobs = 15
 )
 
 type item struct {
@@ -101,8 +101,8 @@ func storeList(u string, bar *uiprogress.Bar, wg *sync.WaitGroup) (err error) {
 	}()
 
 	// blocked in goroutine
-	l := colly.NewCollector()
-	l.OnHTML("body", func(e *colly.HTMLElement) {
+	c := colly.NewCollector()
+	c.OnHTML("body", func(e *colly.HTMLElement) {
 		if em := e.DOM.Find(`div[class="law-result"] > h3`).Text(); em != "" {
 			catalog := strings.Trim(strings.Trim(em, "\n"), " ")
 			e.ForEach("#hlkLawName", func(_ int, el *colly.HTMLElement) {
@@ -121,12 +121,13 @@ func storeList(u string, bar *uiprogress.Bar, wg *sync.WaitGroup) (err error) {
 
 	})
 
-	l.OnError(func(_ *colly.Response, e error) {
+	c.OnError(func(_ *colly.Response, e error) {
 		log.Fatalf("error:", e)
 		err = e
 	})
 
-	l.Visit(u)
+	c.Visit(u)
+	c.Wait()
 	return
 }
 
